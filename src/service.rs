@@ -5,7 +5,7 @@ use waypoint::{
     app::App,
     config::{Config, ServiceMode},
     services::{
-        consumer::ConsumerService, mcp::McpService, producer::ProducerService,
+        consumer::ConsumerService, mcp::McpService, producer::ProducerService, rest::RestService,
         streaming::StreamingService,
     },
 };
@@ -85,6 +85,23 @@ pub async fn run_service(config: &Config, mode: ServiceMode) -> Result<()> {
         info!("MCP service disabled in producer mode (requires database)");
     } else {
         info!("MCP service disabled in configuration");
+    }
+
+    // Register REST service if enabled (only for consumer or both modes, needs database)
+    if config.rest.enabled && matches!(mode, ServiceMode::Consumer | ServiceMode::Both) {
+        let rest_service = RestService::new()
+            .configure(config.rest.bind_address.clone(), config.rest.port)
+            .with_max_limit(config.rest.max_limit)
+            .with_swagger_ui_enabled(config.rest.swagger_ui_enabled);
+        app.register_service(rest_service);
+        info!(
+            "REST service registered with bind address {}:{}",
+            config.rest.bind_address, config.rest.port
+        );
+    } else if config.rest.enabled && mode == ServiceMode::Producer {
+        info!("REST service disabled in producer mode (requires database)");
+    } else {
+        info!("REST service disabled in configuration");
     }
 
     // Run the application

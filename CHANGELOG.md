@@ -48,6 +48,7 @@ All notable changes to Waypoint will be documented in this file.
 - Add root_parent tracking columns
 - Add root_parent backfill worker
 - Wire up root_parent backfill command (#73)
+- Add read-only REST API service with MCP resource parity endpoints, generated OpenAPI, and Swagger UI
 
 ### Miscellaneous Tasks
 
@@ -355,5 +356,3 @@ All notable changes to Waypoint will be documented in this file.
 ### Refactor
 
 - Improve backfill system with standalone docker-compose (#7)
-
-

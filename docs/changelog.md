@@ -15,6 +15,7 @@ All notable changes to Waypoint will be documented in this file.
 
 - Add MCP resources with RFC-compliant resource URIs and query parameters (#84)
 - Add Conversation resource type for MCP
+- Add read-only REST API service with MCP resource parity endpoints, generated OpenAPI, and Swagger UI
 
 ### Refactor
 

@@ -53,7 +53,11 @@ WAYPOINT_REDIS__URL=redis://localhost:6379
 WAYPOINT_HUB__URL=snapchain.farcaster.xyz:3383
 ```
 
-See `.env.example` for all options including MCP, metrics, and Ethereum settings.
+See `.env.example` for all options including MCP, REST API, metrics, and Ethereum settings.
+
+REST API docs endpoints (when REST is enabled):
+- OpenAPI JSON: `http://localhost:8081/api/v1/openapi.json`
+- Swagger UI: `http://localhost:8081/swagger-ui` (when `WAYPOINT_REST__SWAGGER_UI_ENABLED=true`)
 
 ### Docker networking
 
@@ -67,6 +71,7 @@ Never use `localhost` for hub URLs in containers. Use:
 - [Development Guide](docs/development.md)
 - [Architecture](docs/architecture.md)
 - [MCP Service](docs/mcp.md)
+- [REST API](docs/rest.md)
 - [Metrics](docs/metrics.md)
 - [Changelog](docs/changelog.md)
 - [Contributing](docs/contributing.md)

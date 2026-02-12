@@ -1,9 +1,10 @@
 # Architecture
 
-Three main components:
+Four main components:
 1. **Streaming** - Real-time Snapchain events via gRPC → Redis → PostgreSQL
 2. **Backfill** - Historical data via queue/worker pattern
 3. **MCP** - AI assistant data access
+4. **REST API** - Read-only HTTP resource access
 
 ## Service Modes
 
@@ -77,6 +78,23 @@ sequenceDiagram
 ```
 
 See [mcp.md](mcp.md) for tool details.
+
+## REST API
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant REST
+    participant Hub as Snapchain
+    participant DB as PostgreSQL
+
+    Client->>REST: GET /api/v1/... 
+    REST->>Hub: Fetch (primary)
+    REST->>DB: Fallback
+    REST->>Client: JSON response
+```
+
+See [rest.md](rest.md) for endpoint details.
 
 ## Data Access
 

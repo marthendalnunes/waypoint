@@ -55,6 +55,14 @@ enabled = true
 bind_address = "0.0.0.0"
 port = 8000
 
+# REST API Configuration
+[rest]
+enabled = false
+bind_address = "127.0.0.1"
+port = 8081
+max_limit = 100
+swagger_ui_enabled = false
+
 # Ethereum Configuration with Alchemy
 [eth]
 # Mnemonic for wallet generation

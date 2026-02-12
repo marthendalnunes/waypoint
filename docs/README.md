@@ -5,6 +5,7 @@
 - [Data Architecture](data-architecture.md) - Database schema
 - [Streaming](streaming.md) - Real-time event processing
 - [MCP Service](mcp.md) - AI assistant integration
+- [REST API](rest.md) - HTTP resource API
 - [Metrics](metrics.md) - StatsD/Grafana monitoring
 - [Changelog](changelog.md)
 - [Contributing](contributing.md)

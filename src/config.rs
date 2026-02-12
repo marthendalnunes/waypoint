@@ -523,6 +523,32 @@ impl Default for McpConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestConfig {
+    #[serde(default = "default_rest_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_rest_bind_address")]
+    pub bind_address: String,
+    #[serde(default = "default_rest_port")]
+    pub port: u16,
+    #[serde(default = "default_rest_max_limit")]
+    pub max_limit: usize,
+    #[serde(default = "default_rest_swagger_ui_enabled")]
+    pub swagger_ui_enabled: bool,
+}
+
+impl Default for RestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_rest_enabled(),
+            bind_address: default_rest_bind_address(),
+            port: default_rest_port(),
+            max_limit: default_rest_max_limit(),
+            swagger_ui_enabled: default_rest_swagger_ui_enabled(),
+        }
+    }
+}
+
 fn default_mcp_enabled() -> bool {
     true
 }
@@ -533,6 +559,26 @@ fn default_mcp_bind_address() -> String {
 
 fn default_mcp_port() -> u16 {
     8000
+}
+
+fn default_rest_enabled() -> bool {
+    false
+}
+
+fn default_rest_bind_address() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_rest_port() -> u16 {
+    8081
+}
+
+fn default_rest_max_limit() -> usize {
+    100
+}
+
+fn default_rest_swagger_ui_enabled() -> bool {
+    false
 }
 
 /// Default value for clear_db - default to false for safety
@@ -553,6 +599,8 @@ pub struct Config {
     pub statsd: StatsdConfig,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default)]
+    pub rest: RestConfig,
     #[serde(default)]
     pub eth: EthConfig,
     #[serde(default)]
@@ -761,6 +809,30 @@ impl Default for HubConfig {
 }
 
 impl Config {
+    fn validate_rest_config(&self) -> Result<(), ConfigError> {
+        if self.rest.enabled {
+            if self.rest.bind_address.trim().is_empty() {
+                return Err(ConfigError::InvalidValue(
+                    "REST bind_address cannot be empty when rest.enabled=true".to_string(),
+                ));
+            }
+
+            if self.rest.port == 0 {
+                return Err(ConfigError::InvalidValue(
+                    "REST port must be > 0 when rest.enabled=true".to_string(),
+                ));
+            }
+
+            if self.rest.max_limit == 0 {
+                return Err(ConfigError::InvalidValue(
+                    "REST max_limit must be > 0 when rest.enabled=true".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Load configuration from environment variables and optional config file
     pub fn load() -> Result<Self, ConfigError> {
         // Load .env file if it exists
@@ -803,6 +875,8 @@ impl Config {
             return Err(ConfigError::MissingConfig("Hub URL is required".to_string()));
         }
 
+        self.validate_rest_config()?;
+
         Ok(())
     }
 
@@ -820,6 +894,8 @@ impl Config {
             ));
         }
 
+        self.validate_rest_config()?;
+
         match mode {
             ServiceMode::Producer => {
                 // Producer needs Hub to subscribe to events
@@ -829,6 +905,13 @@ impl Config {
                     ));
                 }
                 // Database is not required for producer mode
+
+                if self.rest.enabled {
+                    return Err(ConfigError::InvalidValue(
+                        "REST service requires database access; use consumer or both mode"
+                            .to_string(),
+                    ));
+                }
             },
             ServiceMode::Consumer => {
                 // Consumer needs Database to store events
@@ -994,5 +1077,28 @@ mod tests {
         let config: TestConfig =
             serde_json::from_str(r#"{"v":"42"}"#).expect("single string value");
         assert_eq!(config.v, vec![42]);
+    }
+
+    #[test]
+    fn test_validate_for_mode_consumer_enforces_rest_limits_when_enabled() {
+        let mut config = Config::default();
+        config.rest.enabled = true;
+        config.rest.max_limit = 0;
+
+        let result = config.validate_for_mode(ServiceMode::Consumer);
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidValue(message))
+                if message.contains("REST max_limit must be > 0 when rest.enabled=true")
+        ));
+    }
+
+    #[test]
+    fn test_validate_for_mode_ignores_rest_limits_when_disabled() {
+        let mut config = Config::default();
+        config.rest.enabled = false;
+        config.rest.max_limit = 0;
+
+        assert!(config.validate_for_mode(ServiceMode::Consumer).is_ok());
     }
 }

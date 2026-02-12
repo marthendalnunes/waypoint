@@ -95,3 +95,16 @@ http_port = 3000
 tcp_port = 3001
 # Bind address for TCP and HTTP servers
 bind_address = "0.0.0.0"
+
+# REST API Configuration
+[rest]
+# Enable the REST API service
+enabled = false
+# Network address to bind the REST service to
+bind_address = "127.0.0.1"
+# Port to listen on for REST API requests
+port = 8081
+# Maximum allowed value for `limit` query parameters
+max_limit = 100
+# Enable Swagger UI route (`/swagger-ui`) for interactive docs
+swagger_ui_enabled = false

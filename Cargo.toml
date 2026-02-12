@@ -86,6 +86,8 @@ chrono = { version = "0.4.39", features = ["serde"] }
 url = "2.3.1"
 percent-encoding = "2.3"
 rand = "0.9.1"
+utoipa = { version = "5.3.1", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 # HTTP client
 reqwest = { version = "0.12.10", features = ["stream"] }
@@ -102,6 +104,7 @@ tonic-prost-build = "0.14.1"
 [dev-dependencies]
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+tower = { version = "0.5", features = ["util"] }
 
 [profile.dev]
 opt-level = 0
