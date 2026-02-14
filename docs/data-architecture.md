@@ -67,7 +67,7 @@ classDiagram
         +get_all_casts_by_fid(fid: Fid, limit: usize, start_time: Option~u64~, end_time: Option~u64~): Result~Vec~Message~~
     }
 
-    class DataContext~DB, HC~ {
+    class DataContextGeneric["DataContext<DB, HC>"] {
         -DB database
         -HC hub_client
         +new(database: DB, hub_client: HC): Self
@@ -83,13 +83,13 @@ classDiagram
         +get_all_casts_by_fid(fid: Fid, limit: usize, start_time: Option~u64~, end_time: Option~u64~): Result~Vec~Message~~
     }
 
-    class DataContextBuilder~DB, HC~ {
+    class DataContextBuilderGeneric["DataContextBuilder<DB, HC>"] {
         -Option~DB~ database
         -Option~HC~ hub_client
         +new(): Self
         +with_database(database: DB): Self
         +with_hub_client(hub_client: HC): Self
-        +build(): DataContext~DB, HC~
+        +build(): DataContextGeneric
     }
 
     class FarcasterHubClient {
@@ -102,15 +102,15 @@ classDiagram
         +Option~HubServiceClient~ client
         +Arc~HubConfig~ config
         +String host
-        +new(config: Arc~HubConfig~): Result~Hub, Error~
+        +new(config: Arc~HubConfig~): Result
         +connect(): Result
-        +stream(): Result~EventStream, Error~
+        +stream(): Result
         +get_hub_info(): Result~GetInfoResponse~
         +get_fids(page_size: Option~u32~, page_token: Option~Vec~u8~~, reverse: Option~bool~): Result~FidsResponse~
     }
     
     class EventStream {
-        +subscribe(): Result~impl Stream~HubEvent~, Error~
+        +subscribe(): Result
     }
 
     class HubConfig {
@@ -133,14 +133,14 @@ classDiagram
     %% Object composition/association
     Message o-- MessageId
     Message o-- MessageType
-    DataContext o-- Database
-    DataContext o-- HubClient
+    DataContextGeneric o-- Database
+    DataContextGeneric o-- HubClient
     Hub o-- HubConfig
     Hub o-- EventStream
     FarcasterHubClient o-- Hub
 
     %% Usage relationships
-    DataContextBuilder --> DataContext
+    DataContextBuilderGeneric --> DataContextGeneric
     PostgresDatabase --> Message
     PostgresDatabase --> MessageId
     PostgresDatabase --> MessageType

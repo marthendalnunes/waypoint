@@ -55,13 +55,10 @@ WAYPOINT_HUB__URL=snapchain.farcaster.xyz:3383
 
 See `.env.example` for all options including MCP, REST API, metrics, and Ethereum settings.
 
-REST API docs endpoints (when REST is enabled):
-- OpenAPI JSON: `http://localhost:8081/api/v1/openapi.json`
-- Swagger UI: `http://localhost:8081/swagger-ui` (when `WAYPOINT_REST__SWAGGER_UI_ENABLED=true`)
-
 ### Docker networking
 
 Never use `localhost` for hub URLs in containers. Use:
+
 - `snapchain:3381` (compose network)
 - `host.docker.internal:3381` (Docker Desktop)
 - `172.17.0.1:3381` (Linux bridge)

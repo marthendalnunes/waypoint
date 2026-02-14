@@ -8,7 +8,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::services::rest::{
     RestError, RestState,
-    state::{ResourceReadOptions, RestResource, parse_hash_bytes},
+    state::{ResourceReadOptions, RestResource, parse_address_bytes, parse_hash_bytes},
 };
 
 const DEFAULT_LIMIT: usize = 10;
@@ -29,6 +29,13 @@ pub(crate) struct ConversationQuery {
     recursive: Option<bool>,
     max_depth: Option<usize>,
     limit: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct VerificationMessagesQuery {
+    limit: Option<usize>,
+    start_time: Option<u64>,
+    end_time: Option<u64>,
 }
 
 fn parse_fid(input: &str) -> Result<u64, RestError> {
@@ -56,6 +63,16 @@ fn required_url(url: Option<String>) -> Result<String, RestError> {
     }
 }
 
+fn validate_time_range(start_time: Option<u64>, end_time: Option<u64>) -> Result<(), RestError> {
+    if let (Some(start), Some(end)) = (start_time, end_time)
+        && start > end
+    {
+        return Err(RestError::invalid_params("start_time must be less than or equal to end_time"));
+    }
+
+    Ok(())
+}
+
 async fn fetch_resource(
     state: &RestState,
     resource: RestResource,
@@ -70,6 +87,8 @@ pub fn router(swagger_ui_enabled: bool) -> Router<RestState> {
         .route("/api/v1/openapi.json", get(get_openapi))
         .route("/api/v1/users/by-username/{username}", get(get_user_by_username))
         .route("/api/v1/users/{fid}", get(get_user_by_fid))
+        .route("/api/v1/verifications/all-by-fid/{fid}", get(get_all_verification_messages_by_fid))
+        .route("/api/v1/verifications/{fid}/{address}", get(get_verification_by_address))
         .route("/api/v1/verifications/{fid}", get(get_verifications_by_fid))
         .route("/api/v1/casts/by-fid/{fid}", get(get_casts_by_fid))
         .route("/api/v1/casts/by-mention/{fid}", get(get_casts_by_mention))
@@ -82,7 +101,9 @@ pub fn router(swagger_ui_enabled: bool) -> Router<RestState> {
         .route("/api/v1/reactions/by-target-url", get(get_reactions_by_target_url))
         .route("/api/v1/links/by-fid/{fid}", get(get_links_by_fid))
         .route("/api/v1/links/by-target/{fid}", get(get_links_by_target))
-        .route("/api/v1/links/compact-state/{fid}", get(get_link_compact_state));
+        .route("/api/v1/links/compact-state/{fid}", get(get_link_compact_state))
+        .route("/api/v1/username-proofs/by-name/{name}", get(get_username_proof_by_name))
+        .route("/api/v1/username-proofs/{fid}", get(get_username_proofs_by_fid));
 
     if swagger_ui_enabled {
         router.merge(
@@ -190,6 +211,81 @@ pub(crate) async fn get_verifications_by_fid(
     fetch_resource(
         &state,
         RestResource::VerificationsByFid { fid },
+        ResourceReadOptions { limit: Some(limit), ..Default::default() },
+    )
+    .await
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/verifications/{fid}/{address}",
+    tag = "verifications",
+    params(
+        ("fid" = u64, Path, description = "Farcaster ID"),
+        ("address" = String, Path, description = "Address in hex format (with or without 0x prefix)")
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Verification by FID and address",
+            body = crate::services::rest::openapi::VerificationByAddressResponseDoc
+        ),
+        (status = 400, description = "Invalid request parameters", body = crate::services::rest::openapi::ErrorEnvelopeDoc),
+        (status = 404, description = "Verification not found", body = crate::services::rest::openapi::ErrorEnvelopeDoc),
+        (status = 500, description = "Internal server error", body = crate::services::rest::openapi::ErrorEnvelopeDoc)
+    )
+)]
+pub(crate) async fn get_verification_by_address(
+    State(state): State<RestState>,
+    Path((fid, address)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, RestError> {
+    let fid = parse_fid(&fid)?;
+    parse_address_bytes(&address).map_err(RestError::invalid_params)?;
+
+    fetch_resource(
+        &state,
+        RestResource::VerificationByAddress { fid, address },
+        ResourceReadOptions::default(),
+    )
+    .await
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/verifications/all-by-fid/{fid}",
+    tag = "verifications",
+    params(
+        ("fid" = u64, Path, description = "Farcaster ID"),
+        ("limit" = Option<usize>, Query, description = "Max number of records"),
+        ("start_time" = Option<u64>, Query, description = "Filter records at or after this timestamp"),
+        ("end_time" = Option<u64>, Query, description = "Filter records at or before this timestamp")
+    ),
+    responses(
+        (
+            status = 200,
+            description = "All verification messages by FID",
+            body = crate::services::rest::openapi::AllVerificationMessagesByFidResponseDoc
+        ),
+        (status = 400, description = "Invalid request parameters", body = crate::services::rest::openapi::ErrorEnvelopeDoc),
+        (status = 500, description = "Internal server error", body = crate::services::rest::openapi::ErrorEnvelopeDoc)
+    )
+)]
+pub(crate) async fn get_all_verification_messages_by_fid(
+    State(state): State<RestState>,
+    Path(fid): Path<String>,
+    Query(query): Query<VerificationMessagesQuery>,
+) -> Result<Json<serde_json::Value>, RestError> {
+    let fid = parse_fid(&fid)?;
+    let limit = normalize_limit(query.limit, state.max_limit)?;
+    validate_time_range(query.start_time, query.end_time)?;
+
+    fetch_resource(
+        &state,
+        RestResource::AllVerificationMessagesByFid {
+            fid,
+            start_time: query.start_time,
+            end_time: query.end_time,
+        },
         ResourceReadOptions { limit: Some(limit), ..Default::default() },
     )
     .await
@@ -563,6 +659,65 @@ pub(crate) async fn get_link_compact_state(
     .await
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/username-proofs/by-name/{name}",
+    tag = "username-proofs",
+    params(
+        ("name" = String, Path, description = "Username to lookup (e.g. alice, vitalik.eth)")
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Username proof by name",
+            body = crate::services::rest::openapi::UsernameProofByNameResponseDoc
+        ),
+        (status = 404, description = "Username proof not found", body = crate::services::rest::openapi::ErrorEnvelopeDoc),
+        (status = 500, description = "Internal server error", body = crate::services::rest::openapi::ErrorEnvelopeDoc)
+    )
+)]
+pub(crate) async fn get_username_proof_by_name(
+    State(state): State<RestState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, RestError> {
+    fetch_resource(
+        &state,
+        RestResource::UsernameProofByName { name },
+        ResourceReadOptions::default(),
+    )
+    .await
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/username-proofs/{fid}",
+    tag = "username-proofs",
+    params(
+        ("fid" = u64, Path, description = "Farcaster ID")
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Username proofs by FID",
+            body = crate::services::rest::openapi::UsernameProofsByFidResponseDoc
+        ),
+        (status = 400, description = "Invalid request parameters", body = crate::services::rest::openapi::ErrorEnvelopeDoc),
+        (status = 500, description = "Internal server error", body = crate::services::rest::openapi::ErrorEnvelopeDoc)
+    )
+)]
+pub(crate) async fn get_username_proofs_by_fid(
+    State(state): State<RestState>,
+    Path(fid): Path<String>,
+) -> Result<Json<serde_json::Value>, RestError> {
+    let fid = parse_fid(&fid)?;
+    fetch_resource(
+        &state,
+        RestResource::UsernameProofsByFid { fid },
+        ResourceReadOptions::default(),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,13 +762,51 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct NotFoundReader;
+
+    #[async_trait]
+    impl ResourceReader for NotFoundReader {
+        async fn read_resource(
+            &self,
+            _resource: RestResource,
+            _options: ResourceReadOptions,
+        ) -> Result<serde_json::Value, RestError> {
+            Err(RestError::NotFound("resource missing".to_string()))
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct EmptyListReader;
+
+    #[async_trait]
+    impl ResourceReader for EmptyListReader {
+        async fn read_resource(
+            &self,
+            resource: RestResource,
+            _options: ResourceReadOptions,
+        ) -> Result<serde_json::Value, RestError> {
+            let payload = match resource {
+                RestResource::CastsByFid { fid } => {
+                    serde_json::json!({ "fid": fid, "count": 0, "casts": [] })
+                },
+                _ => serde_json::json!({ "count": 0 }),
+            };
+
+            Ok(payload)
+        }
+    }
+
+    fn app_with_reader(reader: Arc<dyn ResourceReader>, swagger_ui_enabled: bool) -> Router {
+        router(swagger_ui_enabled).with_state(RestState::new(reader, 50))
+    }
+
     fn app(reader: MockReader) -> Router {
-        app_with_swagger(reader, false)
+        app_with_reader(Arc::new(reader), false)
     }
 
     fn app_with_swagger(reader: MockReader, swagger_ui_enabled: bool) -> Router {
-        let reader: Arc<dyn ResourceReader> = Arc::new(reader);
-        router(swagger_ui_enabled).with_state(RestState::new(reader, 50))
+        app_with_reader(Arc::new(reader), swagger_ui_enabled)
     }
 
     #[tokio::test]
@@ -622,9 +815,12 @@ mod tests {
         let app = app(reader);
 
         let uris = [
+            "/api/v1/openapi.json",
             "/api/v1/users/123",
             "/api/v1/users/by-username/alice",
             "/api/v1/verifications/123",
+            "/api/v1/verifications/123/0xabc123",
+            "/api/v1/verifications/all-by-fid/123",
             "/api/v1/casts/123/0abc",
             "/api/v1/casts/by-fid/123",
             "/api/v1/casts/by-mention/123",
@@ -637,6 +833,8 @@ mod tests {
             "/api/v1/links/by-fid/123",
             "/api/v1/links/by-target/123",
             "/api/v1/links/compact-state/123",
+            "/api/v1/username-proofs/123",
+            "/api/v1/username-proofs/by-name/alice",
         ];
 
         for uri in uris {
@@ -651,26 +849,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_path_params_return_json_400() {
+    async fn invalid_fid_params_return_json_400_across_routes() {
         let app = app(MockReader::default());
-        let response = app
-            .oneshot(Request::builder().uri("/api/v1/users/not-a-fid").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+        let uris = [
+            "/api/v1/users/not-a-fid",
+            "/api/v1/verifications/not-a-fid",
+            "/api/v1/verifications/not-a-fid/0xabc123",
+            "/api/v1/verifications/all-by-fid/not-a-fid",
+            "/api/v1/casts/not-a-fid/0abc",
+            "/api/v1/casts/by-fid/not-a-fid",
+            "/api/v1/casts/by-mention/not-a-fid",
+            "/api/v1/casts/by-parent/not-a-fid/0abc",
+            "/api/v1/conversations/not-a-fid/0abc",
+            "/api/v1/reactions/by-fid/not-a-fid",
+            "/api/v1/reactions/by-target-cast/not-a-fid/0abc",
+            "/api/v1/links/by-fid/not-a-fid",
+            "/api/v1/links/by-target/not-a-fid",
+            "/api/v1/links/compact-state/not-a-fid",
+            "/api/v1/username-proofs/not-a-fid",
+        ];
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        for uri in uris {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
 
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["error"]["code"], "invalid_params");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "route failed: {}", uri);
+
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["error"]["code"], "invalid_params", "route failed: {}", uri);
+        }
     }
 
     #[tokio::test]
-    async fn invalid_hash_returns_json_400() {
+    async fn invalid_hash_returns_json_400_for_all_hash_routes() {
+        let app = app(MockReader::default());
+        let uris = [
+            "/api/v1/casts/123/not-hex",
+            "/api/v1/casts/by-parent/123/not-hex",
+            "/api/v1/conversations/123/not-hex",
+            "/api/v1/reactions/by-target-cast/123/not-hex",
+        ];
+
+        for uri in uris {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "route failed: {}", uri);
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_verification_address_returns_json_400() {
         let app = app(MockReader::default());
         let response = app
             .oneshot(
-                Request::builder().uri("/api/v1/casts/123/not-hex").body(Body::empty()).unwrap(),
+                Request::builder()
+                    .uri("/api/v1/verifications/123/not-hex")
+                    .body(Body::empty())
+                    .unwrap(),
             )
             .await
             .unwrap();
@@ -681,14 +924,53 @@ mod tests {
     #[tokio::test]
     async fn missing_url_query_returns_json_400() {
         let app = app(MockReader::default());
+        let uris = ["/api/v1/casts/by-parent-url", "/api/v1/reactions/by-target-url"];
+
+        for uri in uris {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "route failed: {}", uri);
+        }
+    }
+
+    #[tokio::test]
+    async fn singular_not_found_from_reader_returns_json_404() {
+        let app = app_with_reader(Arc::new(NotFoundReader), false);
+
+        let response = app
+            .oneshot(Request::builder().uri("/api/v1/users/123").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["error"]["code"], "not_found");
+    }
+
+    #[tokio::test]
+    async fn list_empty_payload_from_reader_returns_json_200() {
+        let app = app_with_reader(Arc::new(EmptyListReader), false);
+
         let response = app
             .oneshot(
-                Request::builder().uri("/api/v1/casts/by-parent-url").body(Body::empty()).unwrap(),
+                Request::builder().uri("/api/v1/casts/by-fid/123").body(Body::empty()).unwrap(),
             )
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["fid"], 123);
+        assert_eq!(value["count"], 0);
+        assert_eq!(value["casts"], serde_json::json!([]));
     }
 
     #[tokio::test]
@@ -786,6 +1068,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verification_messages_query_validation_works() {
+        let app = app(MockReader::default());
+
+        let invalid_limit = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/verifications/all-by-fid/123?limit=0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_limit.status(), StatusCode::BAD_REQUEST);
+
+        let invalid_time_range = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/verifications/all-by-fid/123?start_time=100&end_time=10")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_time_range.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn verification_messages_query_is_passed_to_reader() {
+        let reader = MockReader::default();
+        let app = app(reader.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/verifications/all-by-fid/7?start_time=10&end_time=20&limit=9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let calls = reader.calls().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1.limit, Some(9));
+        assert_eq!(
+            calls[0].0,
+            RestResource::AllVerificationMessagesByFid {
+                fid: 7,
+                start_time: Some(10),
+                end_time: Some(20),
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn openapi_endpoint_is_available() {
         let app = app(MockReader::default());
         let response = app
@@ -799,8 +1138,57 @@ mod tests {
 
         assert!(value.get("openapi").is_some());
         assert!(value.get("paths").is_some());
-        assert!(value["paths"].get("/api/v1/users/{fid}").is_some());
-        assert!(value["components"]["schemas"].get("ErrorEnvelopeDoc").is_some());
+
+        let expected_paths = [
+            "/api/v1/openapi.json",
+            "/api/v1/users/{fid}",
+            "/api/v1/users/by-username/{username}",
+            "/api/v1/verifications/{fid}",
+            "/api/v1/verifications/{fid}/{address}",
+            "/api/v1/verifications/all-by-fid/{fid}",
+            "/api/v1/casts/{fid}/{hash}",
+            "/api/v1/casts/by-fid/{fid}",
+            "/api/v1/casts/by-mention/{fid}",
+            "/api/v1/casts/by-parent/{fid}/{hash}",
+            "/api/v1/casts/by-parent-url",
+            "/api/v1/conversations/{fid}/{hash}",
+            "/api/v1/reactions/by-fid/{fid}",
+            "/api/v1/reactions/by-target-cast/{fid}/{hash}",
+            "/api/v1/reactions/by-target-url",
+            "/api/v1/links/by-fid/{fid}",
+            "/api/v1/links/by-target/{fid}",
+            "/api/v1/links/compact-state/{fid}",
+            "/api/v1/username-proofs/by-name/{name}",
+            "/api/v1/username-proofs/{fid}",
+        ];
+
+        for path in expected_paths {
+            assert!(value["paths"].get(path).is_some(), "missing OpenAPI path: {}", path);
+        }
+
+        let expected_schemas = [
+            "ErrorEnvelopeDoc",
+            "UserProfileResponseDoc",
+            "VerificationsResponseDoc",
+            "VerificationByAddressResponseDoc",
+            "AllVerificationMessagesByFidResponseDoc",
+            "CastSummaryDoc",
+            "CastListResponseDoc",
+            "ConversationResponseDoc",
+            "ReactionsByFidResponseDoc",
+            "LinksByFidResponseDoc",
+            "UsernameProofDoc",
+            "UsernameProofByNameResponseDoc",
+            "UsernameProofsByFidResponseDoc",
+        ];
+
+        for schema in expected_schemas {
+            assert!(
+                value["components"]["schemas"].get(schema).is_some(),
+                "missing OpenAPI schema: {}",
+                schema
+            );
+        }
     }
 
     #[tokio::test]
@@ -834,6 +1222,18 @@ mod tests {
                 RestResource::UserByUsername { username: "alice".to_string() },
             ),
             ("/api/v1/verifications/2", RestResource::VerificationsByFid { fid: 2 }),
+            (
+                "/api/v1/verifications/2/0xabc123",
+                RestResource::VerificationByAddress { fid: 2, address: "0xabc123".to_string() },
+            ),
+            (
+                "/api/v1/verifications/all-by-fid/2",
+                RestResource::AllVerificationMessagesByFid {
+                    fid: 2,
+                    start_time: None,
+                    end_time: None,
+                },
+            ),
             ("/api/v1/casts/3/0abc", RestResource::Cast { fid: 3, hash: "0abc".to_string() }),
             ("/api/v1/casts/by-fid/4", RestResource::CastsByFid { fid: 4 }),
             ("/api/v1/casts/by-mention/5", RestResource::CastsByMention { fid: 5 }),
@@ -861,6 +1261,11 @@ mod tests {
             ("/api/v1/links/by-fid/10", RestResource::LinksByFid { fid: 10 }),
             ("/api/v1/links/by-target/11", RestResource::LinksByTarget { fid: 11 }),
             ("/api/v1/links/compact-state/12", RestResource::LinkCompactStateByFid { fid: 12 }),
+            (
+                "/api/v1/username-proofs/by-name/vitalik.eth",
+                RestResource::UsernameProofByName { name: "vitalik.eth".to_string() },
+            ),
+            ("/api/v1/username-proofs/13", RestResource::UsernameProofsByFid { fid: 13 }),
         ];
 
         for (uri, expected) in cases {

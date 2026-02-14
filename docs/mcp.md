@@ -89,6 +89,13 @@ The Waypoint MCP integration provides the following tools to AI assistants:
 
 Waypoint also exposes MCP resources for canonical read-only data views. These are JSON resources that can be fetched via `resources/read` with a `waypoint://` URI.
 
+### REST parity for MCP resources
+
+Most MCP resources in this document have an equivalent REST endpoint under `/api/v1/...`.
+
+- For a full URI-to-endpoint map, see [REST API: MCP Resource Mapping](rest.md#mcp-resource-mapping).
+- MCP-only tools and prompts remain available through the MCP transport (`/mcp`).
+
 ### URI Design (RFC 3986 / RFC 6570)
 
 Resource URIs follow [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) (URI syntax) and [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570) (URI Template) standards:

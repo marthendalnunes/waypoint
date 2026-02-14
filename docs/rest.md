@@ -45,6 +45,8 @@ Base URL examples in this document use `http://localhost:8081`.
 
 ### Verifications
 - `GET /api/v1/verifications/{fid}`
+- `GET /api/v1/verifications/{fid}/{address}`
+- `GET /api/v1/verifications/all-by-fid/{fid}?limit=10&start_time=<unix>&end_time=<unix>`
 
 ### Casts
 - `GET /api/v1/casts/{fid}/{hash}`
@@ -66,6 +68,10 @@ Base URL examples in this document use `http://localhost:8081`.
 - `GET /api/v1/links/by-target/{fid}?limit=10`
 - `GET /api/v1/links/compact-state/{fid}`
 
+### Username Proofs
+- `GET /api/v1/username-proofs/{fid}`
+- `GET /api/v1/username-proofs/by-name/{name}`
+
 ## MCP Resource Mapping
 
 | MCP Resource URI | REST Endpoint |
@@ -73,6 +79,8 @@ Base URL examples in this document use `http://localhost:8081`.
 | `waypoint://users/{fid}` | `GET /api/v1/users/{fid}` |
 | `waypoint://users/by-username/{username}` | `GET /api/v1/users/by-username/{username}` |
 | `waypoint://verifications/{fid}` | `GET /api/v1/verifications/{fid}` |
+| `waypoint://verifications/{fid}/{address}` | `GET /api/v1/verifications/{fid}/{address}` |
+| `waypoint://verifications/all-by-fid/{fid}` | `GET /api/v1/verifications/all-by-fid/{fid}` |
 | `waypoint://casts/{fid}/{hash}` | `GET /api/v1/casts/{fid}/{hash}` |
 | `waypoint://casts/by-fid/{fid}` | `GET /api/v1/casts/by-fid/{fid}` |
 | `waypoint://casts/by-mention/{fid}` | `GET /api/v1/casts/by-mention/{fid}` |
@@ -85,12 +93,16 @@ Base URL examples in this document use `http://localhost:8081`.
 | `waypoint://links/by-fid/{fid}` | `GET /api/v1/links/by-fid/{fid}` |
 | `waypoint://links/by-target/{fid}` | `GET /api/v1/links/by-target/{fid}` |
 | `waypoint://links/compact-state/{fid}` | `GET /api/v1/links/compact-state/{fid}` |
+| `waypoint://username-proofs/by-name/{name}` | `GET /api/v1/username-proofs/by-name/{name}` |
+| `waypoint://username-proofs/{fid}` | `GET /api/v1/username-proofs/{fid}` |
 
 ## Defaults and validation
 - `limit` defaults to `10` and is clamped by `rest.max_limit`.
 - `limit=0` is rejected with `400`.
 - URL-based endpoints require `url` query parameter.
 - Hash params accept `0x`-prefixed and non-prefixed hex.
+- Address params accept `0x`-prefixed and non-prefixed hex.
+- `start_time` must be less than or equal to `end_time`.
 
 ## Request and Response Examples
 
@@ -129,6 +141,58 @@ Example response:
       "address": "0x1234...",
       "protocol": "ethereum",
       "type": "eoa",
+      "action": "add",
+      "timestamp": 1710000000
+    }
+  ]
+}
+```
+
+### Get Verification by FID and Address
+
+```bash
+curl "http://localhost:8081/api/v1/verifications/3/0x1234"
+```
+
+Example response:
+
+```json
+{
+  "fid": 3,
+  "address": "0x1234",
+  "found": true,
+  "verification": {
+    "fid": 3,
+    "address": "0x1234",
+    "protocol": "ethereum",
+    "type": "eoa",
+    "action": "add",
+    "timestamp": 1710000000
+  }
+}
+```
+
+### Get All Verification Messages by FID
+
+```bash
+curl "http://localhost:8081/api/v1/verifications/all-by-fid/3?limit=25&start_time=1700000000&end_time=1710000000"
+```
+
+Example response:
+
+```json
+{
+  "fid": 3,
+  "count": 2,
+  "start_time": 1700000000,
+  "end_time": 1710000000,
+  "verifications": [
+    {
+      "fid": 3,
+      "address": "0x1234...",
+      "protocol": "ethereum",
+      "type": "eoa",
+      "action": "add",
       "timestamp": 1710000000
     }
   ]
@@ -163,6 +227,49 @@ curl "http://localhost:8081/api/v1/reactions/by-target-cast/3/0xabc123?limit=10"
 
 ```bash
 curl "http://localhost:8081/api/v1/links/by-target/3?limit=20"
+```
+
+### Get Username Proof by Name
+
+```bash
+curl "http://localhost:8081/api/v1/username-proofs/by-name/vitalik.eth"
+```
+
+Example response:
+
+```json
+{
+  "name": "vitalik.eth",
+  "found": true,
+  "type": "ens_l1",
+  "fid": 5650,
+  "timestamp": 1710000000,
+  "owner": "0x1234..."
+}
+```
+
+### Get Username Proofs by FID
+
+```bash
+curl "http://localhost:8081/api/v1/username-proofs/5650"
+```
+
+Example response:
+
+```json
+{
+  "fid": 5650,
+  "count": 1,
+  "proofs": [
+    {
+      "name": "vitalik.eth",
+      "type": "ens_l1",
+      "fid": 5650,
+      "timestamp": 1710000000,
+      "owner": "0x1234..."
+    }
+  ]
+}
 ```
 
 ## Error format

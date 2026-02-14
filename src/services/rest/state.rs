@@ -20,6 +20,8 @@ pub enum RestResource {
     UserByFid { fid: u64 },
     UserByUsername { username: String },
     VerificationsByFid { fid: u64 },
+    VerificationByAddress { fid: u64, address: String },
+    AllVerificationMessagesByFid { fid: u64, start_time: Option<u64>, end_time: Option<u64> },
     Cast { fid: u64, hash: String },
     Conversation { fid: u64, hash: String },
     CastsByFid { fid: u64 },
@@ -32,6 +34,8 @@ pub enum RestResource {
     LinksByFid { fid: u64 },
     LinksByTarget { fid: u64 },
     LinkCompactStateByFid { fid: u64 },
+    UsernameProofByName { name: String },
+    UsernameProofsByFid { fid: u64 },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +60,15 @@ fn empty_list_payload(resource: &RestResource) -> serde_json::Value {
     match resource {
         RestResource::VerificationsByFid { fid } => {
             serde_json::json!({ "fid": fid, "count": 0, "verifications": [] })
+        },
+        RestResource::AllVerificationMessagesByFid { fid, start_time, end_time } => {
+            serde_json::json!({
+                "fid": fid,
+                "count": 0,
+                "start_time": start_time,
+                "end_time": end_time,
+                "verifications": []
+            })
         },
         RestResource::CastsByFid { fid } | RestResource::CastsByMention { fid } => {
             serde_json::json!({ "fid": fid, "count": 0, "casts": [] })
@@ -88,22 +101,21 @@ fn empty_list_payload(resource: &RestResource) -> serde_json::Value {
         RestResource::LinkCompactStateByFid { fid } => {
             serde_json::json!({ "fid": fid, "count": 0, "compact_links": [] })
         },
+        RestResource::UsernameProofsByFid { fid } => {
+            serde_json::json!({ "fid": fid, "count": 0, "proofs": [] })
+        },
         _ => serde_json::json!({}),
     }
 }
 
-fn classify_username_lookup_error(message: String) -> ResourceReadError {
+fn classify_found_false_error(message: String) -> ResourceReadError {
     let lowered = message.trim().to_ascii_lowercase();
 
     if lowered.starts_with("error") {
         return ResourceReadError::Internal(message);
     }
 
-    if lowered.contains("username not found") {
-        return ResourceReadError::NotFound(message);
-    }
-
-    ResourceReadError::Internal(message)
+    ResourceReadError::NotFound(message)
 }
 
 fn parse_resource_output(
@@ -111,15 +123,19 @@ fn parse_resource_output(
     output: String,
 ) -> Result<serde_json::Value, ResourceReadError> {
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output) {
-        if matches!(resource, RestResource::UserByUsername { .. })
-            && value.get("found").and_then(serde_json::Value::as_bool) == Some(false)
+        if matches!(
+            resource,
+            RestResource::UserByUsername { .. }
+                | RestResource::VerificationByAddress { .. }
+                | RestResource::UsernameProofByName { .. }
+        ) && value.get("found").and_then(serde_json::Value::as_bool) == Some(false)
         {
             let message = value
                 .get("error")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("Username not found")
+                .unwrap_or("Resource not found")
                 .to_string();
-            return Err(classify_username_lookup_error(message));
+            return Err(classify_found_false_error(message));
         }
 
         return Ok(value);
@@ -139,8 +155,10 @@ fn parse_resource_output(
         return match resource {
             RestResource::UserByFid { .. }
             | RestResource::UserByUsername { .. }
+            | RestResource::VerificationByAddress { .. }
             | RestResource::Cast { .. }
-            | RestResource::Conversation { .. } => Err(ResourceReadError::NotFound(output)),
+            | RestResource::Conversation { .. }
+            | RestResource::UsernameProofByName { .. } => Err(ResourceReadError::NotFound(output)),
             _ => Ok(empty_list_payload(resource)),
         };
     }
@@ -155,6 +173,15 @@ pub fn parse_hash_bytes(hash: &str) -> Result<Vec<u8>, String> {
     }
 
     hex::decode(trimmed).map_err(|_| format!("Invalid hash format: {hash}"))
+}
+
+pub fn parse_address_bytes(address: &str) -> Result<Vec<u8>, String> {
+    let trimmed = address.trim_start_matches("0x");
+    if trimmed.is_empty() {
+        return Err("Invalid address format: empty address".to_string());
+    }
+
+    hex::decode(trimmed).map_err(|_| format!("Invalid address format: {address}"))
 }
 
 #[async_trait]
@@ -203,6 +230,19 @@ where
             },
             RestResource::VerificationsByFid { fid } => {
                 self.service.do_get_verifications_by_fid(Fid::from(*fid), limit).await
+            },
+            RestResource::VerificationByAddress { fid, address } => {
+                self.service.do_get_verification(Fid::from(*fid), address).await
+            },
+            RestResource::AllVerificationMessagesByFid { fid, start_time, end_time } => {
+                self.service
+                    .do_get_all_verification_messages_by_fid(
+                        Fid::from(*fid),
+                        limit,
+                        *start_time,
+                        *end_time,
+                    )
+                    .await
             },
             RestResource::Cast { fid, hash } => {
                 self.service.do_get_cast(Fid::from(*fid), hash).await
@@ -258,6 +298,12 @@ where
             },
             RestResource::LinkCompactStateByFid { fid } => {
                 self.service.do_get_link_compact_state_by_fid(Fid::from(*fid)).await
+            },
+            RestResource::UsernameProofByName { name } => {
+                self.service.do_get_username_proof(name).await
+            },
+            RestResource::UsernameProofsByFid { fid } => {
+                self.service.do_get_username_proofs_by_fid(Fid::from(*fid)).await
             },
         };
 
@@ -328,7 +374,68 @@ mod tests {
     }
 
     #[test]
-    fn mcp_json_payload_shape_is_preserved_for_v1_resources() {
+    fn verification_lookup_found_false_json_maps_to_404() {
+        let resource = RestResource::VerificationByAddress { fid: 1, address: "0xabc".to_string() };
+        let output = serde_json::json!({
+            "fid": 1,
+            "address": "0xabc",
+            "found": false,
+            "error": "Verification not found"
+        })
+        .to_string();
+
+        let result = parse_resource_output(&resource, output);
+        assert!(matches!(result, Err(ResourceReadError::NotFound(_))));
+    }
+
+    #[test]
+    fn username_proof_lookup_found_false_json_maps_to_404() {
+        let resource = RestResource::UsernameProofByName { name: "alice".to_string() };
+        let output = serde_json::json!({
+            "name": "alice",
+            "found": false,
+            "error": "Username proof not found"
+        })
+        .to_string();
+
+        let result = parse_resource_output(&resource, output);
+        assert!(matches!(result, Err(ResourceReadError::NotFound(_))));
+    }
+
+    #[test]
+    fn verification_messages_not_found_maps_to_empty_payload() {
+        let resource = RestResource::AllVerificationMessagesByFid {
+            fid: 1,
+            start_time: Some(10),
+            end_time: Some(20),
+        };
+        let result = parse_resource_output(
+            &resource,
+            "No verification messages found for FID 1 between timestamps 10 and 20".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(result["fid"], 1);
+        assert_eq!(result["count"], 0);
+        assert_eq!(result["start_time"], 10);
+        assert_eq!(result["end_time"], 20);
+        assert_eq!(result["verifications"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn username_proofs_not_found_maps_to_empty_payload() {
+        let resource = RestResource::UsernameProofsByFid { fid: 1 };
+        let result =
+            parse_resource_output(&resource, "No username proofs found for FID 1".to_string())
+                .unwrap();
+
+        assert_eq!(result["fid"], 1);
+        assert_eq!(result["count"], 0);
+        assert_eq!(result["proofs"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn mcp_json_payload_shape_is_preserved_for_rest_resources() {
         let cases = vec![
             (
                 RestResource::UserByFid { fid: 1 },
@@ -341,6 +448,29 @@ mod tests {
             (
                 RestResource::VerificationsByFid { fid: 2 },
                 serde_json::json!({ "fid": 2, "count": 1, "verifications": [{ "address": "0xabc" }] }),
+            ),
+            (
+                RestResource::VerificationByAddress { fid: 2, address: "0xabc".to_string() },
+                serde_json::json!({
+                    "fid": 2,
+                    "address": "0xabc",
+                    "found": true,
+                    "verification": { "address": "0xabc" }
+                }),
+            ),
+            (
+                RestResource::AllVerificationMessagesByFid {
+                    fid: 2,
+                    start_time: Some(10),
+                    end_time: Some(20),
+                },
+                serde_json::json!({
+                    "fid": 2,
+                    "count": 1,
+                    "start_time": 10,
+                    "end_time": 20,
+                    "verifications": [{ "address": "0xabc", "action": "add" }]
+                }),
             ),
             (
                 RestResource::Cast { fid: 3, hash: "0abc".to_string() },
@@ -410,6 +540,31 @@ mod tests {
                     "compact_links": [{ "target_fid": 42, "state": "follow" }]
                 }),
             ),
+            (
+                RestResource::UsernameProofByName { name: "alice".to_string() },
+                serde_json::json!({
+                    "name": "alice",
+                    "found": true,
+                    "type": "fname",
+                    "fid": 12,
+                    "timestamp": 1710000000,
+                    "owner": "0xabc"
+                }),
+            ),
+            (
+                RestResource::UsernameProofsByFid { fid: 12 },
+                serde_json::json!({
+                    "fid": 12,
+                    "count": 1,
+                    "proofs": [{
+                        "name": "alice",
+                        "type": "fname",
+                        "fid": 12,
+                        "timestamp": 1710000000,
+                        "owner": "0xabc"
+                    }]
+                }),
+            ),
         ];
 
         for (resource, mcp_payload) in cases {
@@ -424,5 +579,19 @@ mod tests {
         let without_prefix = parse_hash_bytes("0abc").unwrap();
         assert_eq!(with_prefix, without_prefix);
         assert_eq!(with_prefix, vec![0x0a, 0xbc]);
+    }
+
+    #[test]
+    fn address_parser_accepts_prefixed_and_unprefixed_hex() {
+        let with_prefix = parse_address_bytes("0x0abc").unwrap();
+        let without_prefix = parse_address_bytes("0abc").unwrap();
+        assert_eq!(with_prefix, without_prefix);
+        assert_eq!(with_prefix, vec![0x0a, 0xbc]);
+    }
+
+    #[test]
+    fn address_parser_rejects_empty_address() {
+        let err = parse_address_bytes("0x").unwrap_err();
+        assert_eq!(err, "Invalid address format: empty address");
     }
 }

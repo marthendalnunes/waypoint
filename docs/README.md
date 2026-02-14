@@ -1,5 +1,7 @@
 # Documentation
 
+Waypoint exposes two read interfaces: MCP for AI-native workflows and REST for standard HTTP clients.
+
 - [Development](development.md) - Local setup and workflow
 - [Architecture](architecture.md) - System design and data flow
 - [Data Architecture](data-architecture.md) - Database schema

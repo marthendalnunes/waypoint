@@ -33,17 +33,38 @@ pub struct VerificationItemDoc {
     pub fid: u64,
     pub address: String,
     pub protocol: String,
+    pub action: String,
     #[serde(rename = "type")]
-    pub verification_type: String,
+    pub verification_type: Option<String>,
     pub chain_id: Option<u64>,
     pub timestamp: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[schema(example = json!({ "fid": 3, "count": 1, "verifications": [{ "fid": 3, "address": "0x1234", "protocol": "ethereum", "type": "eoa", "timestamp": 1710000000 }] }))]
+#[schema(example = json!({ "fid": 3, "count": 1, "verifications": [{ "fid": 3, "address": "0x1234", "protocol": "ethereum", "action": "add", "type": "eoa", "timestamp": 1710000000 }] }))]
 pub struct VerificationsResponseDoc {
     pub fid: u64,
     pub count: usize,
+    pub verifications: Vec<VerificationItemDoc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(example = json!({ "fid": 3, "address": "0x1234", "found": true, "verification": { "fid": 3, "address": "0x1234", "protocol": "ethereum", "action": "add", "type": "eoa", "timestamp": 1710000000 } }))]
+pub struct VerificationByAddressResponseDoc {
+    pub fid: u64,
+    pub address: String,
+    pub found: bool,
+    pub verification: Option<VerificationItemDoc>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(example = json!({ "fid": 3, "count": 2, "start_time": 1700000000, "end_time": 1710000000, "verifications": [{ "fid": 3, "address": "0x1234", "protocol": "ethereum", "action": "add", "type": "eoa", "timestamp": 1710000000 }] }))]
+pub struct AllVerificationMessagesByFidResponseDoc {
+    pub fid: u64,
+    pub count: usize,
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
     pub verifications: Vec<VerificationItemDoc>,
 }
 
@@ -145,6 +166,37 @@ pub struct LinkCompactStateResponseDoc {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UsernameProofDoc {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub proof_type: String,
+    pub fid: u64,
+    pub timestamp: u64,
+    pub owner: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(example = json!({ "name": "vitalik.eth", "found": true, "type": "ens_l1", "fid": 5650, "timestamp": 1710000000, "owner": "0x1234" }))]
+pub struct UsernameProofByNameResponseDoc {
+    pub name: String,
+    pub found: bool,
+    #[serde(rename = "type")]
+    pub proof_type: Option<String>,
+    pub fid: Option<u64>,
+    pub timestamp: Option<u64>,
+    pub owner: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[schema(example = json!({ "fid": 5650, "count": 1, "proofs": [{ "name": "vitalik.eth", "type": "ens_l1", "fid": 5650, "timestamp": 1710000000, "owner": "0x1234" }] }))]
+pub struct UsernameProofsByFidResponseDoc {
+    pub fid: u64,
+    pub count: usize,
+    pub proofs: Vec<UsernameProofDoc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(example = json!({ "root_cast": { "fid": 3, "hash": "0xabc", "text": "hello" }, "conversation": { "replies": [], "has_more": false } }))]
 pub struct ConversationResponseDoc {
     pub root_cast: serde_json::Value,
@@ -163,6 +215,8 @@ pub struct ConversationResponseDoc {
         crate::services::rest::handlers::get_user_by_fid,
         crate::services::rest::handlers::get_user_by_username,
         crate::services::rest::handlers::get_verifications_by_fid,
+        crate::services::rest::handlers::get_verification_by_address,
+        crate::services::rest::handlers::get_all_verification_messages_by_fid,
         crate::services::rest::handlers::get_cast,
         crate::services::rest::handlers::get_casts_by_fid,
         crate::services::rest::handlers::get_casts_by_mention,
@@ -174,7 +228,9 @@ pub struct ConversationResponseDoc {
         crate::services::rest::handlers::get_reactions_by_target_url,
         crate::services::rest::handlers::get_links_by_fid,
         crate::services::rest::handlers::get_links_by_target,
-        crate::services::rest::handlers::get_link_compact_state
+        crate::services::rest::handlers::get_link_compact_state,
+        crate::services::rest::handlers::get_username_proof_by_name,
+        crate::services::rest::handlers::get_username_proofs_by_fid
     ),
     components(
         schemas(
@@ -183,6 +239,8 @@ pub struct ConversationResponseDoc {
             UserProfileResponseDoc,
             VerificationItemDoc,
             VerificationsResponseDoc,
+            VerificationByAddressResponseDoc,
+            AllVerificationMessagesByFidResponseDoc,
             CastSummaryDoc,
             CastListResponseDoc,
             CastRepliesByParentResponseDoc,
@@ -196,7 +254,10 @@ pub struct ConversationResponseDoc {
             LinkSummaryDoc,
             LinksByFidResponseDoc,
             LinksByTargetResponseDoc,
-            LinkCompactStateResponseDoc
+            LinkCompactStateResponseDoc,
+            UsernameProofDoc,
+            UsernameProofByNameResponseDoc,
+            UsernameProofsByFidResponseDoc
         )
     ),
     tags(
@@ -206,6 +267,7 @@ pub struct ConversationResponseDoc {
         (name = "conversations", description = "Conversation thread resources"),
         (name = "reactions", description = "Reaction resources"),
         (name = "links", description = "Social graph link resources"),
+        (name = "username-proofs", description = "Username proof resources"),
         (name = "meta", description = "Service metadata endpoints")
     )
 )]

@@ -197,7 +197,7 @@ mod tests {
 
         let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
         let health_url = format!("http://127.0.0.1:{}/health", health_port);
-        let rest_url = format!("http://127.0.0.1:{}/api/v1/users/1", rest_port);
+        let rest_url = format!("http://127.0.0.1:{}/api/v1/users/not-a-fid", rest_port);
 
         let health_status = wait_for_http_response(&client, &health_url, Duration::from_secs(5))
             .await
@@ -207,7 +207,7 @@ mod tests {
         let rest_status = wait_for_http_response(&client, &rest_url, Duration::from_secs(5))
             .await
             .expect("rest endpoint should become reachable");
-        assert_ne!(rest_status, reqwest::StatusCode::NOT_FOUND);
+        assert_eq!(rest_status, reqwest::StatusCode::BAD_REQUEST);
 
         rest_handle.stop().await;
         health_server.shutdown().await;
@@ -224,12 +224,12 @@ mod tests {
         let handle = rest_service.start(service_context(&config)).await.unwrap();
 
         let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build().unwrap();
-        let url = format!("http://127.0.0.1:{}/api/v1/users/1", port);
+        let url = format!("http://127.0.0.1:{}/api/v1/users/not-a-fid", port);
 
         let status = wait_for_http_response(&client, &url, Duration::from_secs(5))
             .await
             .expect("rest endpoint should become reachable before shutdown");
-        assert_ne!(status, reqwest::StatusCode::NOT_FOUND);
+        assert_eq!(status, reqwest::StatusCode::BAD_REQUEST);
 
         handle.stop().await;
 

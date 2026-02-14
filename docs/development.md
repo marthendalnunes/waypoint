@@ -15,6 +15,18 @@ make build
 make run
 ```
 
+## Verify Local APIs
+
+After startup, verify health and REST endpoints:
+
+```bash
+curl "http://localhost:8080/health"
+curl "http://localhost:8081/api/v1/openapi.json"
+curl "http://localhost:8081/api/v1/users/3"
+```
+
+If REST is not enabled, set `WAYPOINT_REST__ENABLED=true` in `.env` and restart Waypoint.
+
 ## Migrations
 
 Migrations run automatically on startup. To add new ones:

@@ -6,6 +6,14 @@ Four main components:
 3. **MCP** - AI assistant data access
 4. **REST API** - Read-only HTTP resource access
 
+## External API Surfaces
+
+| Surface | Protocol | Default Port | Base Path | Primary Clients |
+|---|---|---|---|---|
+| MCP | Streamable HTTP (MCP) | `8000` | `/mcp` | AI assistants and MCP clients |
+| REST API | HTTP/JSON | `8081` | `/api/v1` | Services, dashboards, scripts |
+| Health | HTTP | `8080` (`PORT`) | `/health` | Orchestrators and uptime probes |
+
 ## Service Modes
 
 Waypoint supports three service modes for horizontal scaling:
@@ -17,6 +25,8 @@ waypoint start consumer     # Consumer only: Redis → PostgreSQL
 ```
 
 This enables independent scaling of producers and consumers via HPA or similar.
+
+MCP and REST services are started only in `consumer` or `both` mode because they require database access.
 
 ## Streaming
 
@@ -88,7 +98,7 @@ sequenceDiagram
     participant Hub as Snapchain
     participant DB as PostgreSQL
 
-    Client->>REST: GET /api/v1/... 
+    Client->>REST: GET /api/v1/...
     REST->>Hub: Fetch (primary)
     REST->>DB: Fallback
     REST->>Client: JSON response
